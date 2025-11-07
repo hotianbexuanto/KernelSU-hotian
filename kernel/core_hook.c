@@ -27,6 +27,9 @@
 #include <linux/uaccess.h>
 #include <linux/uidgid.h>
 #include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+#include <linux/lsm_hooks.h>
+#endif
 
 #include "allowlist.h"
 #include "arch.h"
@@ -164,7 +167,10 @@ static void disable_seccomp()
 #ifdef CONFIG_SECCOMP
     current->seccomp.mode = 0;
     current->seccomp.filter = NULL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+    // filter_count was introduced in kernel 4.19+
     atomic_set(&current->seccomp.filter_count, 0);
+#endif
 #else
 #endif
 }
@@ -466,7 +472,13 @@ int ksu_handle_setuid(struct cred *new, const struct cred *old)
     tw->old_cred = get_current_cred();
     tw->cb.func = umount_tw_func;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+    // TWA_RESUME was introduced in kernel 5.8+
     int err = task_work_add(current, &tw->cb, TWA_RESUME);
+#else
+    // Older kernels use boolean parameter (true = notify)
+    int err = task_work_add(current, &tw->cb, true);
+#endif
     if (err) {
         if (tw->old_cred) {
             put_cred(tw->old_cred);
@@ -561,7 +573,8 @@ __maybe_unused int ksu_kprobe_exit(void)
 static int ksu_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 			  unsigned long arg4, unsigned long arg5)
 {
-	ksu_handle_prctl(option, arg2, arg3, arg4, arg5);
+	// ksu_handle_prctl removed - now using ioctl via reboot hook
+	// This hook is kept for compatibility but does nothing
 	return -ENOSYS;
 }
 // kernel 4.4 and 4.9
@@ -584,7 +597,9 @@ static int ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
 static int ksu_inode_rename(struct inode *old_inode, struct dentry *old_dentry,
 			    struct inode *new_inode, struct dentry *new_dentry)
 {
-	return ksu_handle_rename(old_dentry, new_dentry);
+	// Rename tracking is now handled by pkg_observer via fsnotify
+	// This hook is kept for compatibility but does nothing
+	return 0;
 }
 
 static int ksu_task_fix_setuid(struct cred *new, const struct cred *old,
@@ -594,13 +609,12 @@ static int ksu_task_fix_setuid(struct cred *new, const struct cred *old,
 }
 
 #ifndef MODULE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+// LSM hooks are available in kernel 4.10+
 static struct security_hook_list ksu_hooks[] = {
 	LSM_HOOK_INIT(task_prctl, ksu_task_prctl),
 	LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
 	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_IS_HW_HISI)
-	LSM_HOOK_INIT(key_permission, ksu_key_permission)
-#endif
 };
 
 void __init ksu_lsm_hook_init(void)
@@ -612,6 +626,13 @@ void __init ksu_lsm_hook_init(void)
 	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks));
 #endif
 }
+#else
+// For kernels < 4.10, LSM hooks not available, fallback to kprobe
+void __init ksu_lsm_hook_init(void)
+{
+	pr_info("LSM hooks not available in this kernel version, using kprobe only\n");
+}
+#endif
 
 #else
 static int override_security_head(void *head, const void *new_head, size_t len)
