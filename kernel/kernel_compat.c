@@ -138,6 +138,7 @@ ssize_t ksu_kernel_write_compat(struct file *p, const void *buf, size_t count,
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+// Linux 5.8+: Full seccomp cache and strncpy_from_user_nofault support
 long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
                    long count)
 {
@@ -199,7 +200,9 @@ void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
     }
 #endif
 }
-#else
+
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+// Linux 5.3 - 5.7: strncpy_from_unsafe_user available, no seccomp cache
 long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 				   long count)
 {
@@ -216,9 +219,9 @@ void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
 {
 	// Not supported in kernels < 5.8
 }
-#endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0)
+#else
+// Linux < 5.3: Manual implementation needed
 // Copied from: https://elixir.bootlin.com/linux/v4.9.337/source/mm/maccess.c#L201
 long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 				   long count)
@@ -243,5 +246,15 @@ long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 	}
 
 	return ret;
+}
+
+void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
+{
+	// Not supported in kernels < 5.8
+}
+
+void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
+{
+	// Not supported in kernels < 5.8
 }
 #endif
