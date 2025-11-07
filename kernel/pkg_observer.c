@@ -6,10 +6,14 @@
 #include <linux/slab.h>
 #include <linux/rculist.h>
 #include <linux/version.h>
+#include <linux/kallsyms.h>
 #include "klog.h" // IWYU pragma: keep
 #include "throne_tracker.h"
 
 #define MASK_SYSTEM (FS_CREATE | FS_MOVE | FS_EVENT_ON_CHILD)
+
+// fsnotify_add_inode_mark might not be exported in some kernels
+static int (*ksu_fsnotify_add_inode_mark)(struct fsnotify_mark *, struct inode *, int) = NULL;
 
 struct watch_dir {
     const char *path;
@@ -73,6 +77,11 @@ static int add_mark_on_inode(struct inode *inode, u32 mask,
 {
     struct fsnotify_mark *m;
 
+    if (!ksu_fsnotify_add_inode_mark) {
+        pr_err("fsnotify_add_inode_mark is not available\n");
+        return -ENOSYS;
+    }
+
     m = kzalloc(sizeof(*m), GFP_KERNEL);
     if (!m)
         return -ENOMEM;
@@ -80,7 +89,7 @@ static int add_mark_on_inode(struct inode *inode, u32 mask,
     fsnotify_init_mark(m, g);
     m->mask = mask;
 
-    if (fsnotify_add_inode_mark(m, inode, 0)) {
+    if (ksu_fsnotify_add_inode_mark(m, inode, 0)) {
         fsnotify_put_mark(m);
         return -EINVAL;
     }
@@ -133,6 +142,13 @@ static struct watch_dir g_watch = { .path = "/data/system",
 int ksu_observer_init(void)
 {
     int ret = 0;
+
+    // Try to find fsnotify_add_inode_mark symbol
+    ksu_fsnotify_add_inode_mark = (void *)kallsyms_lookup_name("fsnotify_add_inode_mark");
+    if (!ksu_fsnotify_add_inode_mark) {
+        pr_err("Failed to find fsnotify_add_inode_mark symbol\n");
+        return -ENOENT;
+    }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
     g = fsnotify_alloc_group(&ksu_ops, 0);

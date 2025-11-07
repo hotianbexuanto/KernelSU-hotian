@@ -199,13 +199,26 @@ void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
     }
 #endif
 }
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+#else
 long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 				   long count)
 {
 	return strncpy_from_unsafe_user(dst, unsafe_addr, count);
 }
-#else
+
+// For older kernels, provide empty implementations
+void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
+{
+	// Not supported in kernels < 5.8
+}
+
+void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
+{
+	// Not supported in kernels < 5.8
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0)
 // Copied from: https://elixir.bootlin.com/linux/v4.9.337/source/mm/maccess.c#L201
 long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 				   long count)

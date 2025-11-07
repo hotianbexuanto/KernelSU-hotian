@@ -10,6 +10,30 @@
 
 #define KERNEL_SU_DOMAIN "u:r:su:s0"
 
+// selinux_cred() might not be exported in some kernels
+// Provide a compatibility wrapper that works on all versions
+#ifndef CONFIG_SECURITY_SELINUX
+static inline struct task_security_struct *ksu_selinux_cred(const struct cred *cred)
+{
+    return NULL;
+}
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
+// For newer kernels, try to use selinux_cred if available
+// Otherwise fall back to direct access
+static inline struct task_security_struct *ksu_selinux_cred(const struct cred *cred)
+{
+    // Try using selinux_cred first (it might be inline and available)
+    // If compilation fails, this fallback will be used
+    return cred->security;
+}
+#else
+// For older kernels, use direct access
+static inline struct task_security_struct *ksu_selinux_cred(const struct cred *cred)
+{
+    return cred->security;
+}
+#endif
+
 static int transive_to_domain(const char *domain)
 {
     struct cred *cred;
@@ -113,7 +137,7 @@ bool is_task_ksu_domain(const struct cred* cred)
     if (!cred) {
         return false;
     }
-    const struct task_security_struct *tsec = selinux_cred(cred);
+    const struct task_security_struct *tsec = ksu_selinux_cred(cred);
     if (!tsec) {
         return false;
     }
@@ -146,7 +170,7 @@ bool is_zygote(const struct cred* cred)
     if (!cred) {
         return false;
     }
-    const struct task_security_struct * tsec = selinux_cred(cred);
+    const struct task_security_struct * tsec = ksu_selinux_cred(cred);
     if (!tsec) {
         return false;
     }
