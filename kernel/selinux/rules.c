@@ -190,18 +190,11 @@ extern int avc_ss_reset(struct selinux_avc *avc, u32 seqno);
 // reset avc cache table, otherwise the new rules will not take effect if already denied
 static void reset_avc_cache()
 {
-<<<<<<< HEAD
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0))
-    avc_ss_reset(0);
-    selnl_notify_policyload(0);
-    selinux_status_update_policyload(0);
-=======
 #if ((!defined(KSU_COMPAT_USE_SELINUX_STATE)) || \
         LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0))
 	avc_ss_reset(0);
 	selnl_notify_policyload(0);
 	selinux_status_update_policyload(0);
->>>>>>> parent of 898e9d4f ([1.0] Drop Non-GKI Support (#1483))
 #else
     struct selinux_avc *avc = selinux_state.avc;
     avc_ss_reset(avc, 0);
